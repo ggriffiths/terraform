@@ -4,38 +4,23 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/terraform/backend"
 	"github.com/hashicorp/terraform/state"
 	"github.com/hashicorp/terraform/terraform"
 	"github.com/mitchellh/cli"
+
+	localbackend "github.com/hashicorp/terraform/backend/local"
 )
 
-// verify the default output with no environments
-func TestEnv(t *testing.T) {
-	// Create a temporary working directory that is empty
-	td := tempDir(t)
-	os.MkdirAll(td, 0755)
-	defer os.RemoveAll(td)
-	defer testChdir(t, td)()
-
-	ui := new(cli.MockUi)
-	c := &EnvCommand{
-		Meta: Meta{
-			Ui: ui,
-		},
-	}
-
-	if code := c.Run(nil); code != 0 {
-		t.Fatalf("bad: %d\n\n%s", code, ui.ErrorWriter)
-	}
-
-	output := strings.TrimSpace(ui.OutputWriter.String())
-	if output != "* default" {
-		t.Fatalf("bad output:\n%s", output)
-	}
-}
+const (
+	defaultEnvDir  = localbackend.DefaultEnvDir
+	DefaultEnvFile = localbackend.DefaultEnvFile
+	DefaultEnvName = backend.DefaultStateName
+)
 
 func TestEnv_createAndChange(t *testing.T) {
 	// Create a temporary working directory that is empty
@@ -46,7 +31,7 @@ func TestEnv_createAndChange(t *testing.T) {
 
 	c := &EnvCommand{}
 
-	current, err := CurrentEnv()
+	current, err := currentEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +46,7 @@ func TestEnv_createAndChange(t *testing.T) {
 		t.Fatalf("bad: %d\n\n%s", code, ui.ErrorWriter)
 	}
 
-	current, err = CurrentEnv()
+	current, err = currentEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +61,7 @@ func TestEnv_createAndChange(t *testing.T) {
 		t.Fatalf("bad: %d\n\n%s", code, ui.ErrorWriter)
 	}
 
-	current, err = CurrentEnv()
+	current, err = currentEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +148,7 @@ func TestEnv_createWithState(t *testing.T) {
 		t.Fatalf("bad: %d\n\n%s", code, ui.ErrorWriter)
 	}
 
-	newPath := filepath.Join(DefaultEnvDir, "test", DefaultStateFilename)
+	newPath := filepath.Join(defaultEnvDir, "test", DefaultStateFilename)
 	envState := state.LocalState{Path: newPath}
 	err = envState.RefreshState()
 	if err != nil {
@@ -183,7 +168,7 @@ func TestEnv_delete(t *testing.T) {
 	defer testChdir(t, td)()
 
 	// create the env directories
-	if err := os.MkdirAll(filepath.Join(DefaultEnvDir, "test"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(defaultEnvDir, "test"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -195,7 +180,7 @@ func TestEnv_delete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	current, err := CurrentEnv()
+	current, err := currentEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,13 +198,13 @@ func TestEnv_delete(t *testing.T) {
 		t.Fatalf("failure: %s", ui.ErrorWriter)
 	}
 
-	current, err = CurrentEnv()
+	current, err = currentEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if current != DefaultEnvName {
-		t.Fatal("wrong env:", current)
+		t.Fatalf("wrong env: %q", current)
 	}
 }
 func TestEnv_deleteWithState(t *testing.T) {
@@ -229,7 +214,7 @@ func TestEnv_deleteWithState(t *testing.T) {
 	defer testChdir(t, td)()
 
 	// create the env directories
-	if err := os.MkdirAll(filepath.Join(DefaultEnvDir, "test"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(defaultEnvDir, "test"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -250,7 +235,7 @@ func TestEnv_deleteWithState(t *testing.T) {
 		},
 	}
 
-	envStatePath := filepath.Join(DefaultEnvDir, "test", DefaultStateFilename)
+	envStatePath := filepath.Join(defaultEnvDir, "test", DefaultStateFilename)
 	err := (&state.LocalState{Path: envStatePath}).WriteState(originalState)
 	if err != nil {
 		t.Fatal(err)
@@ -273,7 +258,62 @@ func TestEnv_deleteWithState(t *testing.T) {
 		t.Fatalf("failure: %s", ui.ErrorWriter)
 	}
 
-	if _, err := os.Stat(filepath.Join(DefaultEnvDir, "test")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(defaultEnvDir, "test")); !os.IsNotExist(err) {
 		t.Fatal("env 'test' still exists!")
 	}
+}
+
+func currentEnv() (string, error) {
+	contents, err := ioutil.ReadFile(filepath.Join(DefaultDataDir, DefaultEnvFile))
+	if os.IsNotExist(err) {
+		return DefaultEnvName, nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	current := strings.TrimSpace(string(contents))
+	if current == "" {
+		current = DefaultEnvName
+	}
+
+	return current, nil
+}
+
+func envStatePath() (string, error) {
+	currentEnv, err := currentEnv()
+	if err != nil {
+		return "", err
+	}
+
+	if currentEnv == DefaultEnvName {
+		return DefaultStateFilename, nil
+	}
+
+	return filepath.Join(defaultEnvDir, currentEnv, DefaultStateFilename), nil
+}
+
+func listEnvs() ([]string, error) {
+	entries, err := ioutil.ReadDir(defaultEnvDir)
+	// no error if there's no envs configured
+	if os.IsNotExist(err) {
+		return []string{DefaultEnvName}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var envs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			envs = append(envs, filepath.Base(entry.Name()))
+		}
+	}
+
+	sort.Strings(envs)
+
+	// always start with "default"
+	envs = append([]string{DefaultEnvName}, envs...)
+
+	return envs, nil
 }

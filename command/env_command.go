@@ -3,11 +3,10 @@ package command
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"strings"
 
+	"github.com/hashicorp/terraform/backend"
 	"github.com/hashicorp/terraform/terraform"
 	"github.com/mitchellh/cli"
 )
@@ -21,6 +20,11 @@ type EnvCommand struct {
 	delEnv    string
 	statePath string
 	force     bool
+
+	// backend returns by Meta.Backend
+	b backend.Backend
+	// MultiState Backend
+	multi backend.MultiState
 }
 
 func (c *EnvCommand) Run(args []string) int {
@@ -41,6 +45,21 @@ func (c *EnvCommand) Run(args []string) int {
 		return cli.RunResultHelp
 	}
 
+	// Load the backend
+	b, err := c.Backend(nil)
+	if err != nil {
+		c.Ui.Error(fmt.Sprintf("Failed to load backend: %s", err))
+		return 1
+	}
+	c.b = b
+
+	multi, ok := b.(backend.MultiState)
+	if !ok {
+		c.Ui.Error(envNotSupported)
+		return 1
+	}
+	c.multi = multi
+
 	if c.newEnv != "" {
 		return c.createEnv()
 	}
@@ -57,100 +76,116 @@ func (c *EnvCommand) Run(args []string) int {
 }
 
 func (c *EnvCommand) createEnv() int {
-	newEnv := strings.TrimSpace(c.newEnv)
-	if newEnv == "" {
-		c.Ui.Error(fmt.Sprintf("invalid environment: %q", c.newEnv))
-		return 1
+	states, _, err := c.multi.States()
+	for _, s := range states {
+		if c.newEnv == s {
+			c.Ui.Error(fmt.Sprintf(envExists, c.newEnv))
+			return 1
+		}
 	}
 
-	envs, err := ListEnvs()
+	err = c.multi.ChangeState(c.newEnv)
 	if err != nil {
 		c.Ui.Error(err.Error())
 		return 1
-	}
-
-	for _, env := range envs {
-		if newEnv == env {
-			c.Ui.Error(fmt.Sprintf(envExists, newEnv))
-			return 1
-		}
-	}
-
-	err = os.MkdirAll(filepath.Join(DefaultEnvDir, newEnv), 0755)
-	if err != nil {
-		c.Ui.Error(fmt.Sprintf("error creating environment directory: %s", err))
-		return 1
-	}
-
-	if c.statePath != "" {
-		stateData, err := ioutil.ReadFile(c.statePath)
-		if err != nil {
-			c.Ui.Error(fmt.Sprintf("error reading state file: %s", err))
-			return 1
-		}
-
-		newState := filepath.Join(DefaultEnvDir, newEnv, DefaultStateFilename)
-		err = ioutil.WriteFile(newState, stateData, 0644)
-		if err != nil {
-			c.Ui.Error(fmt.Sprintf("error writing state file: %s", err))
-			return 1
-		}
 	}
 
 	c.Ui.Output(
 		c.Colorize().Color(
-			fmt.Sprintf(envCreated, newEnv),
+			fmt.Sprintf(envCreated, c.newEnv),
 		),
 	)
 
-	return c.changeEnv(newEnv)
-}
+	if c.statePath == "" {
+		// if we're not loading a state, then we're done
+		return 0
+	}
 
-func (c *EnvCommand) deleteEnv() int {
-	envs, err := ListEnvs()
+	// load the new state
+	sMgr, err := c.b.State()
 	if err != nil {
 		c.Ui.Error(err.Error())
 		return 1
 	}
 
-	delEnv := ""
-	for _, env := range envs {
-		if c.delEnv == env {
-			delEnv = env
+	// load the existing state
+	stateFile, err := os.Open(c.statePath)
+	if err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
+
+	s, err := terraform.ReadState(stateFile)
+	if err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
+
+	err = sMgr.WriteState(s)
+	if err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
+
+	return 0
+}
+
+func (c *EnvCommand) deleteEnv() int {
+	states, current, err := c.multi.States()
+	if err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
+
+	exists := false
+	for _, s := range states {
+		if c.delEnv == s {
+			exists = true
 			break
 		}
 	}
 
-	if delEnv == "" {
+	if !exists {
 		c.Ui.Error(fmt.Sprintf(envDoesNotExist, c.delEnv))
 		return 1
 	}
 
-	warnNotEmpty := false
-
-	statePath := filepath.Join(DefaultEnvDir, delEnv, DefaultStateFilename)
-	stateFile, err := os.Open(statePath)
-	if err != nil {
-		if !os.IsNotExist(err) {
+	// In order to check if the state being deleted is empty, we need to change
+	// to that state and load it.
+	if current != c.delEnv {
+		if err := c.multi.ChangeState(c.delEnv); err != nil {
 			c.Ui.Error(err.Error())
 			return 1
 		}
-	} else {
-		defer stateFile.Close()
-		state, err := terraform.ReadState(stateFile)
-		// no need to check the error, as invalid state might as well be no
-		// state.
-		if err == nil && !state.Empty() {
-			if !c.force {
-				c.Ui.Error(fmt.Sprintf(envNotEmpty, delEnv))
-				return 1
-			}
 
-			warnNotEmpty = true
-		}
+		// always try to change back after
+		defer func() {
+			if err := c.multi.ChangeState(current); err != nil {
+				c.Ui.Error(err.Error())
+			}
+		}()
 	}
 
-	err = os.RemoveAll(filepath.Join(DefaultEnvDir, delEnv))
+	// we need the actual state to see if it's empty
+	sMgr, err := c.b.State()
+	if err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
+
+	if err := sMgr.RefreshState(); err != nil {
+		c.Ui.Error(err.Error())
+		return 1
+	}
+
+	empty := sMgr.State().Empty()
+
+	if !empty && !c.force {
+		c.Ui.Error(fmt.Sprintf(envNotEmpty, c.delEnv))
+		return 1
+	}
+
+	err = c.multi.DeleteState(c.delEnv)
 	if err != nil {
 		c.Ui.Error(err.Error())
 		return 1
@@ -158,14 +193,14 @@ func (c *EnvCommand) deleteEnv() int {
 
 	c.Ui.Output(
 		c.Colorize().Color(
-			fmt.Sprintf(envDeleted, delEnv),
+			fmt.Sprintf(envDeleted, c.delEnv),
 		),
 	)
 
-	if warnNotEmpty {
+	if !empty {
 		c.Ui.Output(
 			c.Colorize().Color(
-				fmt.Sprintf(envWarnNotEmpty, delEnv),
+				fmt.Sprintf(envWarnNotEmpty, c.delEnv),
 			),
 		)
 	}
@@ -173,47 +208,31 @@ func (c *EnvCommand) deleteEnv() int {
 	return 0
 }
 
-func (c *EnvCommand) changeEnv(newEnv string) int {
-	current, err := CurrentEnv()
+func (c *EnvCommand) changeEnv(name string) int {
+	states, current, err := c.multi.States()
 	if err != nil {
 		c.Ui.Error(err.Error())
 		return 1
 	}
 
-	if newEnv == current {
+	if current == name {
 		return 0
 	}
 
-	envs, err := ListEnvs()
-	if err != nil {
-		c.Ui.Error(err.Error())
-		return 1
-	}
-
-	exists := false
-	for _, env := range envs {
-		if env == newEnv {
-			exists = true
+	found := false
+	for _, s := range states {
+		if name == s {
+			found = true
 			break
 		}
 	}
 
-	if !exists {
-		c.Ui.Error(fmt.Sprintf(envDoesNotExist, newEnv))
+	if !found {
+		c.Ui.Error(fmt.Sprintf(envDoesNotExist, name))
 		return 1
 	}
 
-	err = os.MkdirAll(DefaultDataDir, 0755)
-	if err != nil {
-		c.Ui.Error(err.Error())
-		return 1
-	}
-
-	err = ioutil.WriteFile(
-		filepath.Join(DefaultDataDir, DefaultEnvFile),
-		[]byte(newEnv),
-		0644,
-	)
+	err = c.multi.ChangeState(name)
 	if err != nil {
 		c.Ui.Error(err.Error())
 		return 1
@@ -221,7 +240,7 @@ func (c *EnvCommand) changeEnv(newEnv string) int {
 
 	c.Ui.Output(
 		c.Colorize().Color(
-			fmt.Sprintf(envChanged, newEnv),
+			fmt.Sprintf(envChanged, name),
 		),
 	)
 
@@ -229,25 +248,20 @@ func (c *EnvCommand) changeEnv(newEnv string) int {
 }
 
 func (c *EnvCommand) listEnvs() int {
-	envs, err := ListEnvs()
-	if err != nil {
-		c.Ui.Error(err.Error())
-		return 1
-	}
-
-	current, err := CurrentEnv()
+	states, current, err := c.multi.States()
 	if err != nil {
 		c.Ui.Error(err.Error())
 		return 1
 	}
 
 	var out bytes.Buffer
-	for _, env := range envs {
-		if env == current {
-			fmt.Fprintf(&out, "* %s\n", env)
+	for _, s := range states {
+		if s == current {
+			out.WriteString("* ")
 		} else {
-			fmt.Fprintf(&out, "  %s\n", env)
+			out.WriteString("  ")
 		}
+		out.WriteString(s + "\n")
 	}
 
 	c.Ui.Output(out.String())
@@ -280,6 +294,8 @@ func (c *EnvCommand) Synopsis() string {
 }
 
 const (
+	envNotSupported = `Backend does not support environments`
+
 	envExists = `Environment %q already exists`
 
 	envDoesNotExist = `Environment %q doesn't exist!
