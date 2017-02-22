@@ -369,7 +369,7 @@ func (d *ResourceData) Timeout(key string) time.Duration {
 		return *d.timeouts.Default
 	}
 
-	return time.Duration(0)
+	return 10 * time.Minute
 }
 
 func (d *ResourceData) init() {
