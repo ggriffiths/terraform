@@ -336,14 +336,6 @@ func (d *ResourceData) State() *terraform.InstanceState {
 // Timeout returns the data for the given timeout key
 // Returns zero for any key not found, or not found and no default.
 func (d *ResourceData) Timeout(key string) time.Duration {
-	// log.Printf("\n@@@\n Here in timeout, values for key (%s):\n", key)
-	// if d.timeouts == nil {
-	// 	log.Printf("\t timeouts struct is nil\n")
-	// } else {
-	// 	log.Printf("%s", spew.Sdump(d.timeouts))
-	// }
-	// log.Printf("\n@@@\n")
-
 	key = strings.ToLower(key)
 
 	switch key {
@@ -369,6 +361,7 @@ func (d *ResourceData) Timeout(key string) time.Duration {
 		return *d.timeouts.Default
 	}
 
+	// Return system default of 10 minutes
 	return 10 * time.Minute
 }
 

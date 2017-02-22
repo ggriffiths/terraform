@@ -122,7 +122,6 @@ func TestResourceTimeout_MetaEncode_basic(t *testing.T) {
 	for _, c := range cases {
 		state := &terraform.InstanceDiff{}
 		err := c.Timeout.MetaEncode(state)
-		// log.Printf("\n@@@\npost case meta thing: %s\n@@@\n", spew.Sdump(state))
 		if err != nil && !c.ShouldErr {
 			t.Fatalf("Error, expected:\n%#v\n got:\n%#v\n", c.Expected, state.Meta)
 		}
@@ -171,7 +170,6 @@ func TestResourceTimeout_MetaDecode_basic(t *testing.T) {
 	for _, c := range cases {
 		rt := &ResourceTimeout{}
 		err := rt.MetaDecode(c.State)
-		// log.Printf("\n@@@\npost case meta thing: %s\n@@@\n", spew.Sdump(c.State))
 		if err != nil && !c.ShouldErr {
 			t.Fatalf("Error, expected:\n%#v\n got:\n%#v\n", c.Expected, rt)
 		}
