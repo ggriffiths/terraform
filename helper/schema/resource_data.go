@@ -349,23 +349,23 @@ func (d *ResourceData) Timeout(key string) time.Duration {
 	switch key {
 	case "create":
 		if d.timeouts.Create != nil {
-			// log.Printf("\n@@@\nReturning d timeout create: %#v\n@@@\n", d.timeouts.Create)
 			return *d.timeouts.Create
+		}
+	case "read":
+		if d.timeouts.Read != nil {
+			return *d.timeouts.Read
 		}
 	case "update":
 		if d.timeouts.Update != nil {
-			// log.Printf("\n@@@\nReturning d timeout update: %#v\n@@@\n", d.timeouts.Update)
 			return *d.timeouts.Update
 		}
-		// case "delete":
-		// 	if d.timeouts.Delete != nil {
-		// 		// log.Printf("\n@@@\nReturning d timeout update: %#v\n@@@\n", d.timeouts.Update)
-		// 		return *d.timeouts.Delete
-		// 	}
+	case "delete":
+		if d.timeouts.Delete != nil {
+			return *d.timeouts.Delete
+		}
 	}
 
 	if d.timeouts.Default != nil {
-		// log.Printf("<<<< here in default timeout key")
 		return *d.timeouts.Default
 	}
 

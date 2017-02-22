@@ -1101,6 +1101,26 @@ func TestResourceDataTimeout(t *testing.T) {
 			Rd:       &ResourceData{timeouts: timeoutForValues(10, 0, 0, 0, 7)},
 			Expected: timeoutForValues(10, 7, 7, 7, 7),
 		},
+		// 3
+		{
+			Rd:       &ResourceData{timeouts: timeoutForValues(10, 0, 0, 15, 7)},
+			Expected: timeoutForValues(10, 7, 7, 15, 7),
+		},
+		// 4
+		{
+			Rd:       &ResourceData{timeouts: timeoutForValues(10, 3, 0, 15, 0)},
+			Expected: timeoutForValues(10, 3, 0, 15, 0),
+		},
+		// 5
+		{
+			Rd:       &ResourceData{timeouts: timeoutForValues(10, 3, 0, 0, 13)},
+			Expected: timeoutForValues(10, 3, 13, 13, 13),
+		},
+		// 6
+		{
+			Rd:       &ResourceData{timeouts: timeoutForValues(10, 3, 5, 7, 13)},
+			Expected: timeoutForValues(10, 3, 5, 7, 13),
+		},
 	}
 
 	keys := timeKeys()
@@ -1122,10 +1142,10 @@ func TestResourceDataTimeout(t *testing.T) {
 			}
 
 			if got > 0 && ex == nil {
-				t.Fatalf("Unexpected value in (%s) (%d) 1", k, i)
+				t.Fatalf("Unexpected value in (%s), case %d check 1:\n\texpected: %#v\n\tgot: %#v", k, i, ex, got)
 			}
 			if got == 0 && ex != nil {
-				t.Fatalf("Unexpected value in (%s) (%d) 2", k, i)
+				t.Fatalf("Unexpected value in (%s), case %d check 2:\n\texpected: %#v\n\tgot: %#v", k, i, *ex, got)
 			}
 
 			// confirm values
@@ -1135,75 +1155,6 @@ func TestResourceDataTimeout(t *testing.T) {
 				}
 			}
 		}
-		// { // Check Create
-		// 	if got > 0 && ex == nil {
-		// 		t.Fatalf("Unexpected value in Create (%d) 1", i)
-		// 	}
-		// 	if got == 0 && ex != nil {
-		// 		t.Fatalf("Unexpected value in Create (%d) 2", i)
-		// 	}
-
-		// 	// confirm values
-		// 	if ex != nil {
-		// 		if got != *ex {
-		// 			t.Fatalf("Timeout Create case (%d) expected (%#v), got (%#v)", i, *ex, got)
-		// 		}
-		// 	}
-		// } // end check Create
-
-		// { // Check Read
-		// 	got := c.Rd.Timeout("read")
-		// 	ex := c.Expected.Read
-		// 	if got > 0 && ex == nil {
-		// 		t.Fatalf("Unexpected value in Read (%d) 1", i)
-		// 	}
-		// 	if got == 0 && ex != nil {
-		// 		t.Fatalf("Unexpected value in Read (%d) 2", i)
-		// 	}
-
-		// 	// confirm values
-		// 	if ex != nil {
-		// 		if got != *ex {
-		// 			t.Fatalf("Timeout Read case (%d) expected (%#v), got (%#v)", i, *ex, got)
-		// 		}
-		// 	}
-		// } // end check Create
-
-		// { // Check update
-		// 	got := c.Rd.Timeout("update")
-		// 	ex := c.Expected.Update
-		// 	if got > 0 && ex == nil {
-		// 		t.Fatalf("Unexpected value in Update (%d) test 1:\nexp: %#v\ngot: %#v", i, ex, got)
-		// 	}
-		// 	if got == 0 && ex != nil {
-		// 		t.Fatalf("Unexpected value in Update (%d) test 1:\nexp: %#v\ngot: %#v", i, ex, got)
-		// 	}
-
-		// 	// confirm values
-		// 	if ex != nil {
-		// 		if got != *ex {
-		// 			t.Fatalf("Timeout Update case (%d) expected (%#v), got (%#v)", i, *ex, got)
-		// 		}
-		// 	}
-		// } // end check update
-
-		// { // Check Delete
-		// 	got := c.Rd.Timeout("delete")
-		// 	ex := c.Expected.Delete
-		// 	if got > 0 && ex == nil {
-		// 		t.Fatalf("Unexpected value in Delete (%d) test 1:\nexp: %#v\ngot: %#v", i, ex, got)
-		// 	}
-		// 	if got == 0 && ex != nil {
-		// 		t.Fatalf("Unexpected value in Delete (%d) test 2:\nexp: %#v\ngot: %#v", i, ex, got)
-		// 	}
-
-		// 	// confirm values
-		// 	if ex != nil {
-		// 		if got != *ex {
-		// 			t.Fatalf("Timeout Deletecase (%d) expected (%#v), got (%#v)", i, *ex, got)
-		// 		}
-		// 	}
-		// } // end check update
 	}
 }
 
