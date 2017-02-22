@@ -28,6 +28,8 @@ const (
 	DefaultBackupExtension = ".backup"
 )
 
+var ErrEnvNotSupported = errors.New("environments not supported")
+
 // Local is an implementation of EnhancedBackend that performs all operations
 // locally. This is the "default" backend and implements normal Terraform
 // behavior as it is well known.
@@ -118,6 +120,15 @@ func (b *Local) Configure(c *terraform.ResourceConfig) error {
 }
 
 func (b *Local) States() ([]string, string, error) {
+	// If we have a backend handling state, defer to that.
+	if b.Backend != nil {
+		if b, ok := b.Backend.(backend.MultiState); ok {
+			return b.States()
+		} else {
+			return nil, "", ErrEnvNotSupported
+		}
+	}
+
 	// the listing always start with "default"
 	envs := []string{backend.DefaultStateName}
 
@@ -155,6 +166,15 @@ func (b *Local) States() ([]string, string, error) {
 // DeleteState removes a named state.
 // The "default" state cannot be removed.
 func (b *Local) DeleteState(name string) error {
+	// If we have a backend handling state, defer to that.
+	if b.Backend != nil {
+		if b, ok := b.Backend.(backend.MultiState); ok {
+			return b.DeleteState(name)
+		} else {
+			return ErrEnvNotSupported
+		}
+	}
+
 	if name == "" {
 		return errors.New("empty state name")
 	}
@@ -175,6 +195,15 @@ func (b *Local) DeleteState(name string) error {
 
 // Change to the named state, creating it if it doesn't exist.
 func (b *Local) ChangeState(name string) error {
+	// If we have a backend handling state, defer to that.
+	if b.Backend != nil {
+		if b, ok := b.Backend.(backend.MultiState); ok {
+			return b.ChangeState(name)
+		} else {
+			return ErrEnvNotSupported
+		}
+	}
+
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return errors.New("state name cannot be empty")
