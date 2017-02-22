@@ -83,6 +83,10 @@ type Local struct {
 	schema *schema.Backend
 	opLock sync.Mutex
 	once   sync.Once
+
+	// workingDir is where the State* paths should be relative to.
+	// This is currently only used for tests.
+	workingDir string
 }
 
 func (b *Local) Input(
@@ -141,7 +145,7 @@ func (b *Local) States() ([]string, string, error) {
 		current = name
 	}
 
-	entries, err := ioutil.ReadDir(DefaultEnvDir)
+	entries, err := ioutil.ReadDir(filepath.Join(b.workingDir, DefaultEnvDir))
 	// no error if there's no envs configured
 	if os.IsNotExist(err) {
 		return envs, current, nil
@@ -183,14 +187,19 @@ func (b *Local) DeleteState(name string) error {
 		return errors.New("cannot delete default state")
 	}
 
+	_, current, err := b.States()
+	if err != nil {
+		return err
+	}
+
 	// if we're deleting the current state, we change back to the default
-	if name == b.currentState {
+	if name == current {
 		if err := b.ChangeState(backend.DefaultStateName); err != nil {
 			return err
 		}
 	}
 
-	return os.RemoveAll(filepath.Join(DefaultEnvDir, name))
+	return os.RemoveAll(filepath.Join(b.workingDir, DefaultEnvDir, name))
 }
 
 // Change to the named state, creating it if it doesn't exist.
@@ -232,13 +241,13 @@ func (b *Local) ChangeState(name string) error {
 		}
 	}
 
-	err = os.MkdirAll(DefaultDataDir, 0755)
+	err = os.MkdirAll(filepath.Join(b.workingDir, DefaultDataDir), 0755)
 	if err != nil {
 		return err
 	}
 
 	err = ioutil.WriteFile(
-		filepath.Join(DefaultDataDir, DefaultEnvFile),
+		filepath.Join(b.workingDir, DefaultDataDir, DefaultEnvFile),
 		[]byte(name),
 		0644,
 	)
@@ -417,7 +426,7 @@ func (b *Local) statePath() (string, error) {
 	path := DefaultStateFilename
 
 	if current != backend.DefaultStateName && current != "" {
-		path = filepath.Join(DefaultEnvDir, b.currentState, DefaultStateFilename)
+		path = filepath.Join(b.workingDir, DefaultEnvDir, b.currentState, DefaultStateFilename)
 	}
 	return path, nil
 }
@@ -435,7 +444,7 @@ func (b *Local) createState(name string) error {
 		}
 	}
 
-	err = os.MkdirAll(filepath.Join(DefaultEnvDir, name), 0755)
+	err = os.MkdirAll(filepath.Join(b.workingDir, DefaultEnvDir, name), 0755)
 	if err != nil {
 		return err
 	}
@@ -447,7 +456,7 @@ func (b *Local) createState(name string) error {
 // configuration files.
 // If there are no configured environments, currentStateName returns "default"
 func (b *Local) currentStateName() (string, error) {
-	contents, err := ioutil.ReadFile(filepath.Join(DefaultDataDir, DefaultEnvFile))
+	contents, err := ioutil.ReadFile(filepath.Join(b.workingDir, DefaultDataDir, DefaultEnvFile))
 	if os.IsNotExist(err) {
 		return backend.DefaultStateName, nil
 	}
