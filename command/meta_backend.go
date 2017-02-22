@@ -73,30 +73,6 @@ func (m *Meta) Backend(opts *BackendOpts) (backend.Enhanced, error) {
 		opts = &BackendOpts{}
 	}
 
-	// Setup the local state paths
-	statePath := m.statePath
-	stateOutPath := m.stateOutPath
-	backupPath := m.backupPath
-
-	if statePath == "" {
-		path, err := EnvStatePath()
-		if err != nil {
-			return nil, err
-		}
-		statePath = path
-	}
-
-	if stateOutPath == "" {
-		stateOutPath = statePath
-	}
-	if backupPath == "" {
-		backupPath = stateOutPath + DefaultBackupExtension
-	}
-	if backupPath == "-" {
-		// The local backend expects an empty string for not taking backups.
-		backupPath = ""
-	}
-
 	// Initialize a backend from the config unless we're forcing a purely
 	// local operation.
 	var b backend.Backend
@@ -135,9 +111,9 @@ func (m *Meta) Backend(opts *BackendOpts) (backend.Enhanced, error) {
 	return &backendlocal.Local{
 		CLI:             m.Ui,
 		CLIColor:        m.Colorize(),
-		StatePath:       statePath,
-		StateOutPath:    stateOutPath,
-		StateBackupPath: backupPath,
+		StatePath:       m.statePath,
+		StateOutPath:    m.stateOutPath,
+		StateBackupPath: m.backupPath,
 		ContextOpts:     m.contextOpts(),
 		OpInput:         m.Input(),
 		OpValidation:    true,
