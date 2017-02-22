@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/hashicorp/terraform/terraform"
 )
 
@@ -337,13 +336,39 @@ func (d *ResourceData) State() *terraform.InstanceState {
 // Timeout returns the data for the given timeout key
 // Returns zero for any key not found, or not found and no default.
 func (d *ResourceData) Timeout(key string) time.Duration {
-	log.Printf("\n@@@\n Here in timeout, values for key (%s):\n", key)
-	if d.timeouts == nil {
-		log.Printf("\t timeouts struct is nil\n")
-	} else {
-		log.Printf("%s", spew.Sdump(d.timeouts))
+	// log.Printf("\n@@@\n Here in timeout, values for key (%s):\n", key)
+	// if d.timeouts == nil {
+	// 	log.Printf("\t timeouts struct is nil\n")
+	// } else {
+	// 	log.Printf("%s", spew.Sdump(d.timeouts))
+	// }
+	// log.Printf("\n@@@\n")
+
+	key = strings.ToLower(key)
+
+	switch key {
+	case "create":
+		if d.timeouts.Create != nil {
+			// log.Printf("\n@@@\nReturning d timeout create: %#v\n@@@\n", d.timeouts.Create)
+			return *d.timeouts.Create
+		}
+	case "update":
+		if d.timeouts.Update != nil {
+			// log.Printf("\n@@@\nReturning d timeout update: %#v\n@@@\n", d.timeouts.Update)
+			return *d.timeouts.Update
+		}
+		// case "delete":
+		// 	if d.timeouts.Delete != nil {
+		// 		// log.Printf("\n@@@\nReturning d timeout update: %#v\n@@@\n", d.timeouts.Update)
+		// 		return *d.timeouts.Delete
+		// 	}
 	}
-	log.Printf("\n@@@\n")
+
+	if d.timeouts.Default != nil {
+		// log.Printf("<<<< here in default timeout key")
+		return *d.timeouts.Default
+	}
+
 	return time.Duration(0)
 }
 
